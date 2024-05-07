@@ -24,6 +24,8 @@
 #define HOST_NAME_MAX 255
 #endif
 
+static unsigned char globalSharedSecret[256];
+
 static GtkTextBuffer *tbuf; /* transcript buffer */
 static GtkTextBuffer *mbuf; /* message buffer */
 static GtkTextView *tview;	/* view for transcript */
@@ -238,6 +240,9 @@ int initServerNet(int port)
 	shredKey(&longTermClientpub);
 
 	// Encrypt and send the test message from server to client
+	// // testing global secret:
+	// memcpy(globalSharedSecret, sharedSecret, klen);
+
 	encryptAndSendTestMessage(sockfd, sharedSecret, klen);
 
 	// Receive and verify the test response from the client
@@ -342,6 +347,8 @@ static int shutdownNetwork()
 	{
 		r = recv(sockfd, dummy, 64, 0);
 	} while (r != 0 && r != -1);
+
+	memset(globalSharedSecret, 0, sizeof(globalSharedSecret)); // clear global secret
 	close(sockfd);
 	return 0;
 }
