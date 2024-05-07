@@ -1,5 +1,5 @@
 #include <gtk/gtk.h>
-#include <glib/gunicode.h> /* for utf8 strlen */
+#include <glib/gunicode.h> /* for utf8 strlen ee*/
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
@@ -9,10 +9,15 @@
 #include <getopt.h>
 #include "dh.h"
 #include "keys.h"
+#include "util.h"
+#include <openssl/evp.h>
+#include <string.h>
 
 #ifndef PATH_MAX
 #define PATH_MAX 1024
 #endif
+
+// TODO: implement the 3dh way, how to do longterm keys and epheremal keys?
 
 // not available by default on all systems
 #ifndef HOST_NAME_MAX
@@ -22,7 +27,7 @@
 static GtkTextBuffer *tbuf; /* transcript buffer */
 static GtkTextBuffer *mbuf; /* message buffer */
 static GtkTextView *tview;	/* view for transcript */
-static GtkTextMark *mark;	/* used for scrolling to end of transcript, etc */
+static GtkTextMark *mark;	/* used for  scrolling to end of transcript, etc */
 
 static pthread_t trecv; /* wait for incoming messagess and post to queue */
 void *recvMsg(void *);	/* for trecv */
@@ -32,7 +37,7 @@ void *recvMsg(void *);	/* for trecv */
 	 typeof(b) _b = b;    \
 	 _a > _b ? _a : _b; })
 
-/* network stuff... */
+/* network stfwefwefwuff... */
 
 static int listensock, sockfd;
 static int isclient = 1;
@@ -41,6 +46,112 @@ static void error(const char *msg)
 {
 	perror(msg);
 	exit(EXIT_FAILURE);
+}
+
+void loadLongTermKey(const char *fname, dhKey *K)
+{
+	FILE *file = fopen(fname, "r");
+
+	if (file == NULL)
+	{
+		fprintf(stderr, "key file not found, so creating %s\n", fname);
+		initKey(K);
+		dhGenk(K);
+		writeDH(fname, K);
+	}
+
+	else
+	{
+		printf(" Public key file found, reading...\n");
+
+		if (readDH(fname, K) < 0)
+		{
+			printf("error reading key file.");
+		}
+	}
+}
+
+// Function to encrypt and send a test message without a nonce
+void encryptAndSendTestMessage(int sockfd, unsigned char *sharedSecret, size_t klen)
+{
+	EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+	unsigned char iv[16] = {0}; // Initialize IV to zeros
+
+	// Set up encryption using the shared secret
+	EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), NULL, sharedSecret, iv);
+
+	// Define a basic test message
+	const char *testMsg = "auth-test";
+	unsigned char ciphertext[128];
+	int len, ciphertext_len;
+
+	// Encrypt the message
+	EVP_EncryptUpdate(ctx, ciphertext, &len, (unsigned char *)testMsg, strlen(testMsg));
+	ciphertext_len = len;
+	EVP_EncryptFinal_ex(ctx, ciphertext + len, &len);
+	ciphertext_len += len;
+
+	printf("ciphertext: %s\n", ciphertext);
+	// Send the encrypted test message to the other party
+	send(sockfd, ciphertext, ciphertext_len, 0);
+
+	EVP_CIPHER_CTX_free(ctx);
+}
+
+// Function to receive and verify the encrypted test message without a nonce
+void receiveAndVerifyTestResponse(int sockfd, unsigned char *sharedSecret, size_t klen)
+{
+	EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+	unsigned char iv[16] = {0}; // Initialize IV to zeros
+
+	// Set up decryption using the shared secret
+	EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), NULL, sharedSecret, iv);
+
+	unsigned char ciphertext[128];
+	int nbytes = recv(sockfd, ciphertext, sizeof(ciphertext), 0);
+
+	// Check if the message was successfully received
+	if (nbytes <= 0)
+	{
+		fprintf(stderr, "Failed to receive encrypted test message\n");
+		EVP_CIPHER_CTX_free(ctx);
+		return;
+	}
+
+	unsigned char plaintext[128] = {0}; // Ensure buffer is zeroed
+	int len, plaintext_len;
+
+	// Decrypt the received test message
+	if (EVP_DecryptUpdate(ctx, plaintext, &len, ciphertext, nbytes) != 1)
+	{
+		fprintf(stderr, "DecryptUpdate failed\n");
+		EVP_CIPHER_CTX_free(ctx);
+		return;
+	}
+
+	plaintext_len = len;
+	if (EVP_DecryptFinal_ex(ctx, plaintext + len, &len) != 1)
+	{
+		fprintf(stderr, "DecryptFinal failed\n");
+		EVP_CIPHER_CTX_free(ctx);
+		return;
+	}
+
+	plaintext_len += len;
+	plaintext[plaintext_len] = '\0'; // Null-terminate the string
+
+	// Verify the decrypted message content
+	if (strcmp((char *)plaintext, "auth-test") == 0)
+	{
+		printf("Explicit authentication successful\n");
+		printf("decrypted text: %s\n", plaintext);
+	}
+	else
+	{
+		fprintf(stderr, "Explicit authentication failed: Invalid message content\n");
+	}
+
+	EVP_CIPHER_CTX_free(ctx);
 }
 
 int initServerNet(int port)
@@ -66,8 +177,74 @@ int initServerNet(int port)
 	if (sockfd < 0)
 		error("error on accept");
 	close(listensock);
+
+	// New additions:
+	// Generate server's ephemeral DH key
+	dhKey serverKey;
+	initKey(&serverKey);
+	dhGenk(&serverKey);
+
+	// Generate server's long-term DH key
+	dhKey serverLongTermKey;
+	// initKey(&serverLongTermKey);
+
+	// load the long term key
+	loadLongTermKey("longTermServer", &serverLongTermKey);
+
+	// gmp_printf("longtermserver pubkey: %Zd\n", serverLongTermKey.PK);
+	// gmp_printf("longtermserver privkey: %Zd\n", serverLongTermKey.SK);
+
+	// Serialize and send server's epheremal public key
+	if (serialize_mpz(sockfd, serverKey.PK) == 0)
+	{
+		perror("Failed to send server's epheremal public key");
+		shredKey(&serverKey);
+		return -1;
+	}
+
+	// Prepare to receive client's epheremal public key
+	mpz_t clientPubKey;
+	mpz_init(clientPubKey);
+	if (deserialize_mpz(clientPubKey, sockfd) != 0)
+	{
+		perror("Failed to receive client's public key");
+		shredKey(&serverKey);
+		mpz_clear(clientPubKey);
+		return -1;
+	}
+
+	// debugging:
+	// gmp_printf("Server Public Key: %Zd\n", serverKey.PK);
+	// gmp_printf("Server Secret Key: %Zd\n", serverKey.SK);
+
+	const size_t klen = 256;
+	unsigned char sharedSecret[klen]; // Adjust size based on security needs
+
+	// after recieving clients public epheremal key and reading clients long term pub key from .pub file, compute
+	// the shared secret
+
+	dhKey longTermClientpub;
+	readDH("longtermClient.pub", &longTermClientpub);
+
+	// gmp_printf("long term client pub key recieved: %Zd\n", longTermClientpub.PK);
+	if (dh3Final(serverLongTermKey.SK, serverLongTermKey.PK, serverKey.SK, serverKey.PK, longTermClientpub.PK, clientPubKey, sharedSecret, klen) != 0)
+	{
+		perror("Failed to compute shared secret");
+	}
+
+	// Clean up
+	mpz_clear(clientPubKey);
+	shredKey(&serverKey);
+	shredKey(&longTermClientpub);
+
+	// Encrypt and send the test message from server to client
+	encryptAndSendTestMessage(sockfd, sharedSecret, klen);
+
+	// Receive and verify the test response from the client
+	receiveAndVerifyTestResponse(sockfd, sharedSecret, klen);
+
 	fprintf(stderr, "connection made, starting session...\n");
-	/* at this point, should be able to send/recv on sockfd */
+	/* at this point, shouldd be able to send/recv on sockfd */
 	return 0;
 }
 
@@ -91,6 +268,68 @@ static int initClientNet(char *hostname, int port)
 	if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
 		error("ERROR connecting");
 	/* at this point, should be able to send/recv on sockfd */
+
+	// Generate client's ephemeral DH key
+	dhKey clientKey;
+	initKey(&clientKey);
+	dhGenk(&clientKey);
+
+	// Print client's public and secret key
+	// gmp_printf("Client Public Key: %Zd\n", clientKey.PK);
+	// gmp_printf("Client Secret Key: %Zd\n", clientKey.SK);
+
+	// read/generate client's longterm keys
+	dhKey clientLongTermKey;
+	loadLongTermKey("longTermClient", &clientLongTermKey);
+
+	// gmp_printf("client longterm pubkey: %Zd\n", clientLongTermKey.PK);
+	// gmp_printf("client longterm privkey: %Zd\n", clientLongTermKey.SK);
+
+	// Send client's public key
+	if (serialize_mpz(sockfd, clientKey.PK) == 0)
+	{
+		perror("Failed to send client's public key");
+		shredKey(&clientKey);
+		return -1;
+	}
+
+	// Receive server's public key
+	mpz_t serverPubKey;
+	mpz_init(serverPubKey);
+	if (deserialize_mpz(serverPubKey, sockfd) != 0)
+	{
+		perror("Failed to receive server's public key");
+		shredKey(&clientKey);
+		return -1;
+	}
+
+	// gmp_printf("Received Server Public Key: %Zd\n", serverPubKey);
+
+	size_t klen = 256;
+	// Compute the shared secret
+	unsigned char sharedSecret[klen]; // Adjust size based on security needs
+
+	dhKey longTermServerpub;
+	readDH("longtermServer.pub", &longTermServerpub);
+
+	// gmp_printf("long term server pub key recieved: %Zd\n", longTermServerpub.PK);
+
+	if (dh3Final(clientLongTermKey.SK, clientLongTermKey.PK, clientKey.SK, clientKey.PK, longTermServerpub.PK, serverPubKey, sharedSecret, klen) != 0)
+	{
+		perror("Failed to compute shared secret");
+	}
+
+	mpz_clear(serverPubKey);
+	shredKey(&clientKey);
+	shredKey(&longTermServerpub);
+
+	// Receive and verify the test message from the server
+	receiveAndVerifyTestResponse(sockfd, sharedSecret, klen);
+
+	// Encrypt and send the test response from client to server
+	encryptAndSendTestMessage(sockfd, sharedSecret, klen);
+
+	fprintf(stderr, "Secure connection established.\n");
 	return 0;
 }
 
@@ -192,6 +431,7 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "could not read DH params from file 'params'\n");
 		return 1;
 	}
+
 	// define long options
 	static struct option long_opts[] = {
 		{"connect", required_argument, 0, 'c'},

@@ -2,4 +2,7 @@ chat
 dh-example
 part2.html
 readme.html
+longTermClient
+longTermServer
+*.pub
 *.o

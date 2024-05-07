@@ -8,7 +8,7 @@
 #include <openssl/sha.h>
 
 extern int gmp_fprintf(FILE *, const char *, ...);
-extern int gmp_fscanf (FILE *, const char *, ...);
+extern int gmp_fscanf(FILE *, const char *, ...);
 int initKey(dhKey *k)
 {
 	assert(k);
@@ -88,11 +88,14 @@ int readDH(char *fname, dhKey *k)
 	int rv = 0;
 	char *name;
 	/* TODO %ms might not be portable?  Also might not read spaces. */
-	if (fscanf(f, "name:%ms\n", &name) != 1)
+	char buffer[1024]; // Large enough to hold any expected input
+	if (fscanf(f, "name:%1023s\n", buffer) != 1)
 	{
 		rv = -2;
+		printf("first fscanf failed\n");
 		goto end;
 	}
+	name = strdup(buffer); // Allocate memory and copy the string
 	strncpy(k->name, name, MAX_NAME);
 	k->name[MAX_NAME] = 0; /* make sure it's a c-string */
 	free(name);

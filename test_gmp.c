@@ -1,6 +1,6 @@
 #include <gmp.h>
 #include <stdio.h>
-
+#include <openssl/sha.h>
 extern int __gmp_fprintf(FILE *, const char *, ...);
 
 int main()

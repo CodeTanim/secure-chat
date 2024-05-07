@@ -3,6 +3,11 @@
     <property name="visible">True</property>
     <property name="title">Chat</property>
     <property name="border-width">10</property>
+    <property name="resizable">True</property>
+    <property name="default-width">600</property>
+    <property name="default-height">400</property>
+
+
     <child>
       <object id="grid" class="GtkGrid">
         <property name="visible">True</property>
@@ -26,8 +31,9 @@
           <packing>
             <property name="left-attach">0</property>
             <property name="top-attach">0</property>
-            <property name="width">2</property>
-            <!-- can you set the height here in the packing? -->
+            <property name="width">30</property>
+=            <!-- can you set the height here in the packing? -->
+            
           </packing>
         </child>
         <!-- -->
@@ -53,6 +59,7 @@
           <packing>
             <property name="left-attach">0</property>
             <property name="top-attach">2</property>
+
           </packing>
         </child>
         <child>
@@ -64,6 +71,7 @@
             <property name="left-attach">1</property>
             <property name="top-attach">2</property>
             <!-- <property name="width">2</property> -->
+
           </packing>
         </child>
       </object>

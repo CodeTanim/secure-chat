@@ -23,6 +23,7 @@
         "format": "c",
         "memory": "c",
         "mutex": "c",
-        "functional": "c"
+        "functional": "c",
+        "random": "c"
     }
 }

@@ -5,8 +5,13 @@
             "includePath": [
                 "${workspaceFolder}/**",
                 "/opt/homebrew/include",
+                "/opt/homebrew/opt/glib",
+                "/opt/homebrew/opt/gtk+3",
                 "/opt/homebrew/Cellar/gtk+3/3.24.41/include/gtk-3.0",
-                "/opt/homebrew/Cellar/glib/2.80.0_2/include/glib-2.0"
+                "/opt/homebrew/Cellar/glib/2.80.0_2/include/glib-2.0",
+                "/opt/homebrew/Cellar/openssl@3/3.3.0/include/openssl",
+                "/opt/homebrew/Cellar/glib/2.80.0_2/lib/glib-2.0/include",
+                "/opt/homebrew/Cellar/pango/1.52.2/include/pango-1.0"
             ],
             "defines": [],
             "macFrameworkPath": [
