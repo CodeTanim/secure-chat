@@ -17,7 +17,8 @@
 #define PATH_MAX 1024
 #endif
 
-// TODO: implement the 3dh way, how to do longterm keys and epheremal keys?
+// TODO: Main functionalities completed, now we just need clean up log statements and ensure correctness by doing some extra tests.
+// also need to setup replay attacks prevention.
 
 // not available by default on all systems
 #ifndef HOST_NAME_MAX
@@ -25,6 +26,11 @@
 #endif
 
 static unsigned char globalSharedSecret[256];
+
+void computeAndSendHMAC(int sockfd, const unsigned char *message, size_t msgLen, const unsigned char *sharedSecret, size_t keyLen);
+
+// Function to receive the encrypted message, decrypt it, and verify HMAC
+char *receiveAndVerifyHMAC(unsigned char *sharedSecret, size_t keyLen, const unsigned char *ciphertext, size_t ciphertext_len);
 
 static GtkTextBuffer *tbuf; /* transcript buffer */
 static GtkTextBuffer *mbuf; /* message buffer */
@@ -64,7 +70,7 @@ void loadLongTermKey(const char *fname, dhKey *K)
 
 	else
 	{
-		printf(" Public key file found, reading...\n");
+		printf("Public key file found, reading...\n");
 
 		if (readDH(fname, K) < 0)
 		{
@@ -406,12 +412,17 @@ static void sendMessage(GtkWidget *w /* <-- msg entry widget */, gpointer /* dat
 	gtk_text_buffer_get_start_iter(mbuf, &mstart);
 	gtk_text_buffer_get_end_iter(mbuf, &mend);
 	char *message = gtk_text_buffer_get_text(mbuf, &mstart, &mend, 1);
+	printf("%s\n", message);
 	size_t len = g_utf8_strlen(message, -1);
 	/* XXX we should probably do the actual network stuff in a different
 	 * thread and have it call this once the message is actually sent. */
-	ssize_t nbytes;
-	if ((nbytes = send(sockfd, message, len, 0)) == -1)
-		error("send failed");
+
+	// Encrypt and send the message with HMAC here:
+	computeAndSendHMAC(sockfd, (unsigned char *)message, len, globalSharedSecret, sizeof(globalSharedSecret));
+
+	// ssize_t nbytes;
+	// if ((nbytes = send(sockfd, message, len, 0)) == -1)
+	// 	error("send failed");
 
 	tsappend(message, NULL, 1);
 	free(message);
@@ -543,23 +554,148 @@ void *recvMsg(void *)
 {
 	size_t maxlen = 512;
 	char msg[maxlen + 2]; /* might add \n and \0 */
-	ssize_t nbytes;
+	int nbytes;
+
 	while (1)
 	{
+		// Receive the ciphertext message
 		if ((nbytes = recv(sockfd, msg, maxlen, 0)) == -1)
+		{
 			error("recv failed");
+		}
 		if (nbytes == 0)
 		{
 			/* XXX maybe show in a status message that the other
 			 * side has disconnected. */
 			return 0;
 		}
-		char *m = malloc(maxlen + 2);
-		memcpy(m, msg, nbytes);
-		if (m[nbytes - 1] != '\n')
-			m[nbytes++] = '\n';
-		m[nbytes] = 0;
-		g_main_context_invoke(NULL, shownewmessage, (gpointer)m);
+
+		// Verify and decrypt the message using the shared secret
+		printf("ciphertext recieved: %s\n", msg);
+		char *actualMessage = receiveAndVerifyHMAC(globalSharedSecret, sizeof(globalSharedSecret), (unsigned char *)msg, nbytes);
+
+		// If verification is successful, process the message
+		if (actualMessage != NULL)
+		{
+			// Allocate memory to copy the actual message for the GTK thread
+			char *m = malloc(strlen(actualMessage) + 2);
+			strcpy(m, actualMessage);
+
+			// Ensure the message ends with a newline
+			size_t msgLen = strlen(m);
+			if (m[msgLen - 1] != '\n')
+				m[msgLen++] = '\n';
+			m[msgLen] = 0;
+
+			// Pass the message to the GTK main thread to display it
+			g_main_context_invoke(NULL, shownewmessage, (gpointer)m);
+		}
 	}
 	return 0;
+}
+
+// Function to compute HMAC and encrypt the message with HMAC attached
+void computeAndSendHMAC(int sockfd, const unsigned char *message, size_t msgLen, const unsigned char *sharedSecret, size_t keyLen)
+{
+	unsigned char hmac[EVP_MAX_MD_SIZE];
+	unsigned int hmacLen;
+	EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+	unsigned char iv[16] = {0}; // Initialize IV to zeros
+
+	// Compute the HMAC using SHA-256
+	HMAC(EVP_sha256(), sharedSecret, keyLen, message, msgLen, hmac, &hmacLen);
+
+	// Concatenate the HMAC with the original message
+	unsigned char combinedMessage[1024];
+	memcpy(combinedMessage, hmac, hmacLen);
+	memcpy(combinedMessage + hmacLen, message, msgLen);
+
+	// Encrypt the concatenated message (HMAC + original message)
+	EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), NULL, sharedSecret, iv);
+	unsigned char ciphertext[1024];
+	int len, ciphertext_len;
+	EVP_EncryptUpdate(ctx, ciphertext, &len, combinedMessage, hmacLen + msgLen);
+	ciphertext_len = len;
+	EVP_EncryptFinal_ex(ctx, ciphertext + len, &len);
+	ciphertext_len += len;
+
+	// Send the encrypted message with HMAC to the recipient
+	ssize_t nbytes;
+	printf("ciphertext sent: %s\n", ciphertext);
+	nbytes = send(sockfd, ciphertext, ciphertext_len, 0);
+	if (nbytes == -1)
+	{
+		error("encrypted message send failed");
+	}
+
+	EVP_CIPHER_CTX_free(ctx);
+}
+
+// Function to receive the encrypted message, decrypt it, and verify HMAC
+char *receiveAndVerifyHMAC(unsigned char *sharedSecret, size_t keyLen, const unsigned char *ciphertext, size_t ciphertext_len)
+{
+	unsigned char iv[16] = {0}; // Initialize IV to zeros
+	EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+	unsigned char decrypted[1024] = {0};
+	int len, decrypted_len;
+
+	// Initialize decryption with the shared secret and IV
+	EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), NULL, sharedSecret, iv);
+
+	// Decrypt the received message
+	if (EVP_DecryptUpdate(ctx, decrypted, &len, ciphertext, ciphertext_len) != 1)
+	{
+		fprintf(stderr, "DecryptUpdate failed\n");
+		EVP_CIPHER_CTX_free(ctx);
+		return NULL;
+	}
+	decrypted_len = len;
+
+	if (EVP_DecryptFinal_ex(ctx, decrypted + len, &len) != 1)
+	{
+		fprintf(stderr, "DecryptFinal failed\n");
+		EVP_CIPHER_CTX_free(ctx);
+		return NULL;
+	}
+	decrypted_len += len;
+	decrypted[decrypted_len] = '\0';
+
+	// Extract the received HMAC
+	unsigned char receivedHMAC[EVP_MAX_MD_SIZE];
+	size_t hmacLen = EVP_MD_size(EVP_sha256());
+	memcpy(receivedHMAC, decrypted, hmacLen);
+
+	// Extract the actual message
+	unsigned char *actualMessage = decrypted + hmacLen;
+	size_t actualMsgLen = decrypted_len - hmacLen;
+
+	printf("Decrypted message: %s\n", actualMessage);
+	printf("Decrypted HMAC (hex): ");
+	for (size_t i = 0; i < hmacLen; ++i)
+		printf("%02x", receivedHMAC[i]);
+	printf("\n");
+
+	// Compute a new HMAC based on the received message
+	unsigned char computedHMAC[EVP_MAX_MD_SIZE];
+	unsigned int computedHMACLen;
+	HMAC(EVP_sha256(), sharedSecret, keyLen, actualMessage, actualMsgLen, computedHMAC, &computedHMACLen);
+
+	printf("Computed HMAC (hex): ");
+	for (size_t i = 0; i < hmacLen; ++i)
+		printf("%02x", computedHMAC[i]);
+	printf("\n");
+
+	// Verify if the received HMAC matches the computed HMAC
+	if (memcmp(receivedHMAC, computedHMAC, hmacLen) == 0)
+	{
+		printf("Message verification successful: %s\n", actualMessage);
+		EVP_CIPHER_CTX_free(ctx);
+		return (char *)actualMessage;
+	}
+	else
+	{
+		fprintf(stderr, "Message verification failed\n");
+		EVP_CIPHER_CTX_free(ctx);
+		return NULL;
+	}
 }
