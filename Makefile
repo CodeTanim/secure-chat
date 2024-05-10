@@ -3,17 +3,15 @@ OBJECTS := $(SOURCES:.c=.o)
 OBJECTS := $(OBJECTS:.cpp=.o)
 HEADERS := $(wildcard *.h include/*.h)
 
-COMMON   := -O2 -Wall -Wformat=2 -Wno-format-nonliteral -march=native -DNDEBUG
-CFLAGS   := $(CFLAGS) $(COMMON)
-CXXFLAGS := $(CXXFLAGS) $(COMMON)
+COMMON   := -O2 -Wall -Wformat=2 -Wno-format-nonliteral -DNDEBUG
+CFLAGS   := $(CFLAGS) $(COMMON) 
+CXXFLAGS := $(CXXFLAGS) $(COMMON) 
 CC       := gcc
 CXX      := g++
 LD       := $(CC)
-LDFLAGS  := $(LDFLAGS) # -L/path/to/libs/
+LDFLAGS  := $(LDFLAGS) -L/opt/homebrew/opt/gmp/lib -L/opt/homebrew/opt/openssl@3/lib -L/opt/homebrew/opt/gtk+3/lib# -L/path/to/libs/
 LDADD    := -lpthread -lcrypto -lgmp $(shell pkg-config --libs gtk+-3.0)
-INCLUDE  := $(shell pkg-config --cflags gtk+-3.0)
-DEFS     := # -DLINUX
-
+INCLUDE  := $(shell pkg-config --cflags gtk+-3.0 gmp openssl ) 
 TARGETS  := chat dh-example
 
 IMPL := chat.o
