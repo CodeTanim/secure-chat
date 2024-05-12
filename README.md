@@ -69,3 +69,33 @@ brew install gtk+3 openssl gmp
 - **Usage:** Invoked to handle the reception of encrypted messages, this function forms the core of secure message reception, verifying integrity and decrypting messages in a secure manner.
 
 
+## Other Changes (Configuration for macOS)
+
+### Endian.h Replacement
+- macOS does not include the `endian.h` header file as required by our application. To resolve this, a custom `endian.h` was created using a solution from [this Gist](https://gist.github.com/cute/a4e8de36b6d544d9121c7228bb9b94ec) and added to our project directory. This file should provide the necessary functions for endian conversion. Please verify if this implementation aligns well with our application's requirements.
+
+### Compilation Issues and Fixes
+During compilation, several issues were addressed related to library linking and implicit function declarations:
+
+1. **GMP Library Functions**:
+   - Encountered errors with implicit declarations of `gmp_fprintf` and `gmp_fscanf` which are not recognized under the standard C99.
+   - Solution: Explicitly declared these functions in the respective source files to resolve the issue:
+     ```c
+     extern int gmp_fprintf(FILE *, const char *, ...);
+     extern int gmp_fscanf (FILE *, const char *, ...);
+     ```
+
+2. **Portability of fscanf**:
+   - The use of `%ms` specifier in `fscanf` was not compatible with our macOS system, leading to read failures.
+   - Solution: Replaced `%ms` with a buffer and specific string format to safely read input without exceeding buffer limits:
+     ```c
+     char buffer[1024]; // Buffer size adequate for expected input
+     if (fscanf(f, "name:%1023s\n", buffer) != 1) {
+         printf("Failed to read name.\n");
+         rv = -2; // Use appropriate error handling
+         goto end;
+     }
+     ```
+These modifications ensure that the application compiles and runs as expected on macOS, addressing system-specific limitations and improving cross-platform compatibility.
+
+
