@@ -696,36 +696,32 @@ char *receiveAndVerifyHMAC(unsigned char *sharedSecret, size_t keyLen, const uns
 	unsigned char *actualMessage = decrypted + hmacLen + sizeof(time_t);
 	size_t actualMsgLen = decrypted_len - hmacLen - sizeof(time_t);
 
-	// Include the timestamp when computing the HMAC for verification
+	printf("\nDecrypted message: %s\n", actualMessage);
+
+	// Check if the timestamp is within an acceptable range
+	time_t currentTimestamp = time(NULL);
+	double secondsDiff = difftime(currentTimestamp, receivedTimestamp);
+	if (secondsDiff > 300 || secondsDiff < -300)
+	{ // 5 minutes tolerance
+		fprintf(stderr, "Message rejected due to invalid timestamp.\n");
+		EVP_CIPHER_CTX_free(ctx);
+		return NULL;
+	}
+
+	// Compute a new HMAC based on the timestamp and received message
 	unsigned char messageWithTimestamp[1024];
 	memcpy(messageWithTimestamp, &receivedTimestamp, sizeof(receivedTimestamp));
 	memcpy(messageWithTimestamp + sizeof(receivedTimestamp), actualMessage, actualMsgLen);
 	size_t totalMsgLen = sizeof(receivedTimestamp) + actualMsgLen;
 
-	printf("\nDecrypted message: %s\n", actualMessage);
-	// printf("Decrypted HMAC (hex): ");
-	// for (size_t i = 0; i < hmacLen; ++i)
-	// {
-	// 	printf("%02x", receivedHMAC[i]);
-	// }
-	// printf("\n");
-
-	// Compute a new HMAC based on the timestamp and received message
 	unsigned char computedHMAC[EVP_MAX_MD_SIZE];
 	unsigned int computedHMACLen;
 	HMAC(EVP_sha256(), sharedSecret, keyLen, messageWithTimestamp, totalMsgLen, computedHMAC, &computedHMACLen);
 
-	// printf("Computed HMAC (hex): ");
-	// for (size_t i = 0; i < hmacLen; ++i)
-	// {
-	// 	printf("%02x", computedHMAC[i]);
-	// }
-	// printf("\n");
-
 	// Verify if the received HMAC matches the computed HMAC
 	if (memcmp(receivedHMAC, computedHMAC, hmacLen) == 0)
 	{
-		printf("The HMACS match, meessage verification successful, the actual message was: %s\n", actualMessage);
+		printf("The HMACs match, message verification successful, the actual message was: %s\n", actualMessage);
 		EVP_CIPHER_CTX_free(ctx);
 		return (char *)actualMessage;
 	}
