@@ -98,8 +98,8 @@ Two windows should pop up, connected over the loopback interface.
 ## Other Changes (Configuration for macOS)
 
 ### Endian.h Replacement
-- macOS does not include the `endian.h` header file as required by our application. To resolve this, a custom `endian.h` was created using a solution from [this Gist](https://gist.github.com/cute/a4e8de36b6d544d9121c7228bb9b94ec) and added to our project directory. This file should provide the necessary functions for endian conversion. Please verify if this implementation aligns well with our application's requirements.
-
+- macOS does not include the `endian.h` header file as required by our application. To resolve this, a custom `endian.h` was created using a solution from [this Gist](https://gist.github.com/cute/a4e8de36b6d544d9121c7228bb9b94ec) and added to our project directory. This file should provide the necessary functions for endian conversion.
+  
 ### Compilation Issues and Fixes
 During compilation, several issues were addressed related to library linking and implicit function declarations:
 
