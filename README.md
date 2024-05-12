@@ -40,7 +40,7 @@ To compile, run:
 make
 ```
 
-run 
+then run 
 ```bash 
 ./chat -h 
 ```
