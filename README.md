@@ -61,12 +61,12 @@ brew install gtk+3 openssl gmp
 - **Usage:** Used to confirm the receiving and decrypting capabilities of the communication partner, ensuring mutual authentication and encryption capabilities.
 
 ### `computeAndSendHMAC`
-- **Purpose:** Computes a SHA-256 HMAC for the given message, encrypts both the message and its HMAC using AES-256-CBC, and sends the result over a network socket. This ensures the integrity and confidentiality of the message.
-- **Usage:** This function is called whenever a secure message needs to be sent, handling the encryption and integrity verification of outbound messages.
+- **Purpose:** Computes a SHA-256 HMAC for the given message, encrypts both the message and its HMAC using AES-256-CBC, and sends the result over a network socket. This ensures the integrity and confidentiality of the message. To enhance security against replay attacks, a timestamp is included in the message before computing the HMAC, ensuring that each message is unique and time-bound.
+- **Usage:** This function is called whenever a secure message needs to be sent, handling the encryption and integrity verification of outbound messages. It is specifically used to send time-sensitive and tamper-evident communications, thereby preventing the reuse of messages.
 
 ### `receiveAndVerifyHMAC`
-- **Purpose:** Decrypts an incoming encrypted message and verifies its HMAC to ensure the message's integrity and authenticity. This process is critical for confirming that the message has not been tampered with during transit.
-- **Usage:** Invoked to handle the reception of encrypted messages, this function forms the core of secure message reception, verifying integrity and decrypting messages in a secure manner.
+- **Purpose:** Decrypts an incoming encrypted message and verifies its HMAC to ensure the message's integrity and authenticity. This process is critical for confirming that the message has not been tampered with during transit. The function also checks the timestamp within the decrypted message to ensure it falls within an acceptable time window, thus mitigating replay attacks.
+- **Usage:** Invoked to handle the reception of encrypted messages, this function forms the core of secure message reception, verifying integrity and decrypting messages in a secure manner. It plays a crucial role in ensuring that messages are both current and authentic, providing robust defense against replay schemes.
 
 
 ## Other Changes (Configuration for macOS)
