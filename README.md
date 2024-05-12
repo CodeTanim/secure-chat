@@ -34,7 +34,7 @@ brew install gtk+3 openssl gmp
 - **Security Benefit:** This approach prevents potential eavesdroppers from decrypting intercepted communications even if they obtain private keys after the communication has occurred.
 
 ### Mutual Authentication Using Public Key Cryptography
-- **Implementation:** Both parties authenticate each other using public key cryptography before establishing a secure channel. This process involves verifying each other's identities through digital signatures and public keys which are pre-exchanged or distributed via a trusted channel.
+- **Implementation:** Both parties authenticate each other using public key cryptography before establishing a secure channel. This process involves verifying each other's identities through a shared secret.
 - **Security Benefit:** Mutual authentication ensures that the entities involved in the communication are indeed who they claim to be, preventing impersonation and man-in-the-middle attacks.
 
 ### Encrypted Messages with Message Authentication Codes (MACs)
