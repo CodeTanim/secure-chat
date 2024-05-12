@@ -1,5 +1,10 @@
 # Secure Chat Application
 
+## Group Members
+
+- Tanim Islam
+- Mansij Mishra
+
 ## Background
 
 This project is a secure chat application designed to provide encrypted communication using advanced cryptographic techniques. It incorporates functionalities such as Diffie-Hellman key exchange for establishing a shared secret, AES-256 for encryption, and HMAC for message integrity and authentication. The application is built with the intent to demonstrate secure communication principles in a networked environment.
