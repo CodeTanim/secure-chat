@@ -12,13 +12,10 @@
 #include "util.h"
 #include <openssl/evp.h>
 #include <string.h>
-
+#include <time.h>
 #ifndef PATH_MAX
 #define PATH_MAX 1024
 #endif
-
-// TODO: Main functionalities completed, now we just need clean up log statements and ensure correctness by doing some extra tests.
-// also need to setup replay attacks prevention.
 
 // not available by default on all systems
 #ifndef HOST_NAME_MAX
@@ -27,9 +24,33 @@
 
 static unsigned char globalSharedSecret[256];
 
+// The following function prototypes are the newly defined functions that aid in the completion of the requirements of the project.
+
+// Loads the long-term Diffie-Hellman key from a file. If the file does not exist,
+// a new key is generated, saved, and loaded. This function handles the initial setup
+// and loading of persistent cryptographic keys for use in secure communications.
+void loadLongTermKey(const char *fname, dhKey *K);
+
+// Encrypts and sends a predefined test message ("authentication-test") using AES-256-CBC.
+// The encryption uses a shared secret and a zero-initialized IV. This function is typically
+// used to verify that both communication endpoints have correctly established a shared
+// cryptographic context.
+void encryptAndSendTestMessage(int sockfd, unsigned char *sharedSecret, size_t klen);
+
+// Receives an encrypted test message, decrypts it using the same shared secret, and verifies
+// that the content matches the expected test message ("authentication-test"). This function
+// is part of the mutual authentication process, ensuring both parties can encrypt and decrypt
+// messages correctly.
+void receiveAndVerifyTestResponse(int sockfd, unsigned char *sharedSecret, size_t klen);
+
+// Computes an HMAC for a given message using SHA-256, then encrypts both the HMAC and the
+// message using AES-256-CBC with a shared secret and sends them over a socket. This function
+// is used for secure message transmission, ensuring both integrity and confidentiality.
 void computeAndSendHMAC(int sockfd, const unsigned char *message, size_t msgLen, const unsigned char *sharedSecret, size_t keyLen);
 
-// Function to receive the encrypted message, decrypt it, and verify HMAC
+// Receives an encrypted message, decrypts it, and verifies its HMAC to ensure the message's
+// integrity and authenticity. This function forms the backbone of secure message reception,
+// handling decryption and validation to secure communications against tampering and forgery.
 char *receiveAndVerifyHMAC(unsigned char *sharedSecret, size_t keyLen, const unsigned char *ciphertext, size_t ciphertext_len);
 
 static GtkTextBuffer *tbuf; /* transcript buffer */
@@ -89,7 +110,7 @@ void encryptAndSendTestMessage(int sockfd, unsigned char *sharedSecret, size_t k
 	EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), NULL, sharedSecret, iv);
 
 	// Define a basic test message
-	const char *testMsg = "auth-test";
+	const char *testMsg = "authentication-test";
 	unsigned char ciphertext[128];
 	int len, ciphertext_len;
 
@@ -99,7 +120,7 @@ void encryptAndSendTestMessage(int sockfd, unsigned char *sharedSecret, size_t k
 	EVP_EncryptFinal_ex(ctx, ciphertext + len, &len);
 	ciphertext_len += len;
 
-	printf("ciphertext: %s\n", ciphertext);
+	// printf("ciphertext: %s\n", ciphertext);
 	// Send the encrypted test message to the other party
 	send(sockfd, ciphertext, ciphertext_len, 0);
 
@@ -149,10 +170,10 @@ void receiveAndVerifyTestResponse(int sockfd, unsigned char *sharedSecret, size_
 	plaintext[plaintext_len] = '\0'; // Null-terminate the string
 
 	// Verify the decrypted message content
-	if (strcmp((char *)plaintext, "auth-test") == 0)
+	if (strcmp((char *)plaintext, "authentication-test") == 0)
 	{
-		printf("Explicit authentication successful\n");
-		printf("decrypted text: %s\n", plaintext);
+		printf("Test messages match: Mutual Explicit authentication successful from one side.\n");
+		// printf("decrypted text: %s\n", plaintext); // for debugging.
 	}
 	else
 	{
@@ -412,7 +433,7 @@ static void sendMessage(GtkWidget *w /* <-- msg entry widget */, gpointer /* dat
 	gtk_text_buffer_get_start_iter(mbuf, &mstart);
 	gtk_text_buffer_get_end_iter(mbuf, &mend);
 	char *message = gtk_text_buffer_get_text(mbuf, &mstart, &mend, 1);
-	printf("%s\n", message);
+	// printf("%s\n", message);
 	size_t len = g_utf8_strlen(message, -1);
 	/* XXX we should probably do the actual network stuff in a different
 	 * thread and have it call this once the message is actually sent. */
@@ -571,7 +592,7 @@ void *recvMsg(void *)
 		}
 
 		// Verify and decrypt the message using the shared secret
-		printf("ciphertext recieved: %s\n", msg);
+		// printf("ciphertext recieved: %s\n", msg);
 		char *actualMessage = receiveAndVerifyHMAC(globalSharedSecret, sizeof(globalSharedSecret), (unsigned char *)msg, nbytes);
 
 		// If verification is successful, process the message
@@ -602,30 +623,35 @@ void computeAndSendHMAC(int sockfd, const unsigned char *message, size_t msgLen,
 	EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
 	unsigned char iv[16] = {0}; // Initialize IV to zeros
 
-	// Compute the HMAC using SHA-256
-	HMAC(EVP_sha256(), sharedSecret, keyLen, message, msgLen, hmac, &hmacLen);
+	// Generate a timestamp and append it to the message
+	time_t timestamp = time(NULL);
+	unsigned char messageWithTimestamp[1024];
+	memcpy(messageWithTimestamp, &timestamp, sizeof(timestamp));
+	memcpy(messageWithTimestamp + sizeof(timestamp), message, msgLen);
+	size_t totalMsgLen = sizeof(timestamp) + msgLen;
 
-	// Concatenate the HMAC with the original message
+	// Compute the HMAC using SHA-256
+	HMAC(EVP_sha256(), sharedSecret, keyLen, messageWithTimestamp, totalMsgLen, hmac, &hmacLen);
+
+	// Concatenate the HMAC with the original message (including timestamp)
 	unsigned char combinedMessage[1024];
 	memcpy(combinedMessage, hmac, hmacLen);
-	memcpy(combinedMessage + hmacLen, message, msgLen);
+	memcpy(combinedMessage + hmacLen, messageWithTimestamp, totalMsgLen);
 
-	// Encrypt the concatenated message (HMAC + original message)
+	// Encrypt the concatenated message (HMAC + timestamp + original message)
 	EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), NULL, sharedSecret, iv);
 	unsigned char ciphertext[1024];
 	int len, ciphertext_len;
-	EVP_EncryptUpdate(ctx, ciphertext, &len, combinedMessage, hmacLen + msgLen);
+	EVP_EncryptUpdate(ctx, ciphertext, &len, combinedMessage, hmacLen + totalMsgLen);
 	ciphertext_len = len;
 	EVP_EncryptFinal_ex(ctx, ciphertext + len, &len);
 	ciphertext_len += len;
 
 	// Send the encrypted message with HMAC to the recipient
-	ssize_t nbytes;
-	printf("ciphertext sent: %s\n", ciphertext);
-	nbytes = send(sockfd, ciphertext, ciphertext_len, 0);
+	ssize_t nbytes = send(sockfd, ciphertext, ciphertext_len, 0);
 	if (nbytes == -1)
 	{
-		error("encrypted message send failed");
+		perror("encrypted message send failed");
 	}
 
 	EVP_CIPHER_CTX_free(ctx);
@@ -658,37 +684,48 @@ char *receiveAndVerifyHMAC(unsigned char *sharedSecret, size_t keyLen, const uns
 		return NULL;
 	}
 	decrypted_len += len;
-	decrypted[decrypted_len] = '\0';
+	decrypted[decrypted_len] = '\0'; // Null terminate the decrypted data
 
-	// Extract the received HMAC
-	unsigned char receivedHMAC[EVP_MAX_MD_SIZE];
+	// Extract the HMAC
 	size_t hmacLen = EVP_MD_size(EVP_sha256());
-	memcpy(receivedHMAC, decrypted, hmacLen);
+	unsigned char *receivedHMAC = decrypted;
 
-	// Extract the actual message
-	unsigned char *actualMessage = decrypted + hmacLen;
-	size_t actualMsgLen = decrypted_len - hmacLen;
+	// Extract the timestamp and the actual message
+	time_t receivedTimestamp;
+	memcpy(&receivedTimestamp, decrypted + hmacLen, sizeof(time_t));
+	unsigned char *actualMessage = decrypted + hmacLen + sizeof(time_t);
+	size_t actualMsgLen = decrypted_len - hmacLen - sizeof(time_t);
 
-	printf("Decrypted message: %s\n", actualMessage);
-	printf("Decrypted HMAC (hex): ");
-	for (size_t i = 0; i < hmacLen; ++i)
-		printf("%02x", receivedHMAC[i]);
-	printf("\n");
+	// Include the timestamp when computing the HMAC for verification
+	unsigned char messageWithTimestamp[1024];
+	memcpy(messageWithTimestamp, &receivedTimestamp, sizeof(receivedTimestamp));
+	memcpy(messageWithTimestamp + sizeof(receivedTimestamp), actualMessage, actualMsgLen);
+	size_t totalMsgLen = sizeof(receivedTimestamp) + actualMsgLen;
 
-	// Compute a new HMAC based on the received message
+	printf("\nDecrypted message: %s\n", actualMessage);
+	// printf("Decrypted HMAC (hex): ");
+	// for (size_t i = 0; i < hmacLen; ++i)
+	// {
+	// 	printf("%02x", receivedHMAC[i]);
+	// }
+	// printf("\n");
+
+	// Compute a new HMAC based on the timestamp and received message
 	unsigned char computedHMAC[EVP_MAX_MD_SIZE];
 	unsigned int computedHMACLen;
-	HMAC(EVP_sha256(), sharedSecret, keyLen, actualMessage, actualMsgLen, computedHMAC, &computedHMACLen);
+	HMAC(EVP_sha256(), sharedSecret, keyLen, messageWithTimestamp, totalMsgLen, computedHMAC, &computedHMACLen);
 
-	printf("Computed HMAC (hex): ");
-	for (size_t i = 0; i < hmacLen; ++i)
-		printf("%02x", computedHMAC[i]);
-	printf("\n");
+	// printf("Computed HMAC (hex): ");
+	// for (size_t i = 0; i < hmacLen; ++i)
+	// {
+	// 	printf("%02x", computedHMAC[i]);
+	// }
+	// printf("\n");
 
 	// Verify if the received HMAC matches the computed HMAC
 	if (memcmp(receivedHMAC, computedHMAC, hmacLen) == 0)
 	{
-		printf("Message verification successful: %s\n", actualMessage);
+		printf("The HMACS match, meessage verification successful, the actual message was: %s\n", actualMessage);
 		EVP_CIPHER_CTX_free(ctx);
 		return (char *)actualMessage;
 	}
