@@ -32,6 +32,22 @@ brew install gtk+3 openssl gmp
 
 ```
 
+
+## How to run
+
+run 
+```bash 
+./chat -h 
+```
+and see a list of options. You should be able to test it out like this:
+
+```bash
+./chat -l & sleep 1 && ./chat -c localhost &
+```
+
+Two windows should pop up, connected over the loopback interface.
+
+
 ## Features
 
 ### Ephemeral Key Handshake Protocol with Perfect Forward Secrecy
