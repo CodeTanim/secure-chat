@@ -35,6 +35,11 @@ brew install gtk+3 openssl gmp
 
 ## How to run
 
+To compile, run:
+```bash
+make
+```
+
 run 
 ```bash 
 ./chat -h 
